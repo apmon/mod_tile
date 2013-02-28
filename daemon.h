@@ -35,6 +35,7 @@ typedef struct {
     char host[PATH_MAX];
     char htcpip[PATH_MAX];
     char tile_dir[PATH_MAX];
+    char parameterization_function[XMLCONFIG_MAX];
 } xmlconfigitem;
 
 typedef struct {

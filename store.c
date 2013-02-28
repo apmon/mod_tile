@@ -24,7 +24,7 @@
 #include "protocol.h"
 
 #ifdef METATILE
-int read_from_meta(const char *tilepath, const char *xmlconfig, int x, int y, int z, unsigned char *buf, size_t sz, int * compressed, unsigned char * log_msg)
+int read_from_meta(const char *tilepath, const char *xmlconfig, const char * options, int x, int y, int z, unsigned char *buf, size_t sz, int * compressed, unsigned char * log_msg)
 {
     char path[PATH_MAX];
     int meta_offset, fd;
@@ -33,7 +33,7 @@ int read_from_meta(const char *tilepath, const char *xmlconfig, int x, int y, in
     struct meta_layout *m = (struct meta_layout *)header;
     size_t file_offset, tile_size;
 
-    meta_offset = xyz_to_meta(path, sizeof(path), tilepath, xmlconfig, x, y, z);
+    meta_offset = xyzo_to_meta(path, sizeof(path), tilepath, xmlconfig, options, x, y, z);
 
     fd = open(path, O_RDONLY);
     if (fd < 0) {
@@ -146,12 +146,12 @@ int read_from_file(const char *tilepath, const char *xmlconfig, int x, int y, in
     return pos;
 }
 
-int tile_read(const char *tilepath, const char *xmlconfig, int x, int y, int z, unsigned char *buf, int sz, int * compressed, unsigned char *err_msg)
+int tile_read(const char *tilepath, const char *xmlconfig, const char *options, int x, int y, int z, unsigned char *buf, int sz, int * compressed, unsigned char *err_msg)
 {
 #ifdef METATILE
     int r;
 
-    r = read_from_meta(tilepath, xmlconfig, x, y, z, buf, sz, compressed, err_msg);
+    r = read_from_meta(tilepath, xmlconfig, options, x, y, z, buf, sz, compressed, err_msg);
     if (r >= 0)
         return r;
 #endif
@@ -342,7 +342,7 @@ void process_unpack(const char *tilepath, const char *name)
     for (ox=0; ox < limit; ox++) {
         for (oy=0; oy < limit; oy++) {
             err_msg[0] = 0;
-            int len = read_from_meta(tilepath, xmlconfig, x + ox, y + oy, z, buf, buf_len, &compressed, err_msg);
+            int len = read_from_meta(tilepath, xmlconfig, NULL, x + ox, y + oy, z, buf, buf_len, &compressed, err_msg);
 
             if (len <= 0)
                 fprintf(stderr, "Failed to get tile x(%d) y(%d) z(%d)\n    %s", x + ox, y + oy, z, err_msg);

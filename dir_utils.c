@@ -150,7 +150,10 @@ int path_to_xyz(const char *tilepath, const char *path, char *xmlconfig, int *px
 
 #ifdef METATILE
 // Returns the path to the meta-tile and the offset within the meta-tile
-int xyz_to_meta(char *path, size_t len, const char *tile_dir, const char *xmlconfig, int x, int y, int z)
+int xyz_to_meta(char *path, size_t len, const char *tile_dir, const char *xmlconfig, int x, int y, int z) {
+    xyzo_to_meta(path, len, tile_dir, xmlconfig, NULL, x, y, z);
+}
+int xyzo_to_meta(char *path, size_t len, const char *tile_dir, const char *xmlconfig, const char *parameters, int x, int y, int z)
 {
     unsigned char i, hash[5], offset, mask;
 
@@ -167,9 +170,15 @@ int xyz_to_meta(char *path, size_t len, const char *tile_dir, const char *xmlcon
         y >>= 4;
     }
 #ifdef DIRECTORY_HASH
-    snprintf(path, len, "%s/%s/%d/%u/%u/%u/%u/%u.meta", tile_dir, xmlconfig, z, hash[4], hash[3], hash[2], hash[1], hash[0]);
+    if (strlen(parameters) > 0)
+        snprintf(path, len, "%s/%s/%s/%d/%u/%u/%u/%u/%u.meta", tile_dir, xmlconfig, parameters, z, hash[4], hash[3], hash[2], hash[1], hash[0]);
+    else
+        snprintf(path, len, "%s/%s/%d/%u/%u/%u/%u/%u.meta", tile_dir, xmlconfig, z, hash[4], hash[3], hash[2], hash[1], hash[0]);
 #else
-    snprintf(path, len, "%s/%s/%d/%u/%u.meta", tile_dir, xmlconfig, z, x, y);
+    if (strlen(parameters) > 0)
+        snprintf(path, len, "%s/%s/%s/%d/%u/%u.meta", tile_dir, xmlconfig, parameters, z, x, y);
+    else
+        snprintf(path, len, "%s/%s/%d/%u/%u.meta", tile_dir, xmlconfig, z, x, y);
 #endif
     return offset;
 }

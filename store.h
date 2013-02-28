@@ -7,7 +7,7 @@ extern "C" {
 
 #include <stdlib.h>
 #include "render_config.h"
-    int tile_read(const char *tilepath, const char *xmlconfig, int x, int y, int z, unsigned char *buf, int sz, int * compressed, unsigned char * err_msg);
+    int tile_read(const char *tilepath, const char *xmlconfig, const char *options, int x, int y, int z, unsigned char *buf, int sz, int * compressed, unsigned char * err_msg);
 
 #define META_MAGIC "META"
 #define META_MAGIC_COMPRESSED "METZ"
@@ -28,10 +28,10 @@ struct meta_layout {
 };
 
 
-int read_from_file(const char *tilepath, const char *xmlconfig, int x, int y, int z, unsigned char *buf, size_t sz);
+    int read_from_file(const char *tilepath, const char *xmlconfig, int x, int y, int z, unsigned char *buf, size_t sz);
 
 #ifdef METATILE
-    int read_from_meta(const char *tilepath, const char *xmlconfig, int x, int y, int z, unsigned char *buf, size_t sz, int * compressed, unsigned char * log_msg);
+    int read_from_meta(const char *tilepath, const char *xmlconfig, const char *options, int x, int y, int z, unsigned char *buf, size_t sz, int * compressed, unsigned char * log_msg);
     void process_meta(const char *tilepath, const char *xmlconfig, int x, int y, int z);
     void process_pack(const char *tilepath, const char *name);
     void process_unpack(const char *tilepath, const char *name);

@@ -302,20 +302,18 @@ enum protoCmd pending(struct item *test)
 }
 
 
-enum protoCmd rx_request(const struct protocol *req, int fd)
+enum protoCmd rx_request(struct protocol *req, int fd)
 {
-    struct protocol *reqnew;
     struct item *list = NULL, *item;
     enum protoCmd pend;
 
     // Upgrade version 1 to version 2
     if (req->ver == 1) {
-        reqnew = (struct protocol *)malloc(sizeof(struct protocol));
-        memcpy(reqnew, req, sizeof(struct protocol_v1));
-        reqnew->xmlname[0] = 0;
-        req = reqnew;
-    }
-    else if (req->ver != 2) {
+        strcpy(req->xmlname, "default");
+    } else if (req->ver < 3) {
+        strcpy(req->mimetype,"image/png");
+        strcpy(req->options,"");        
+    } else if (req->ver != 3) {
         syslog(LOG_ERR, "Bad protocol version %d", req->ver);
         return cmdIgnore;
     }
@@ -453,17 +451,17 @@ void process_loop(int listen_fd)
             nfds = MAX(nfds, connections[i]+1);
         }
 
-	FD_SET(exit_pipe_read, &rd);
-	nfds = MAX(nfds, exit_pipe_read+1);
+        FD_SET(exit_pipe_read, &rd);
+        nfds = MAX(nfds, exit_pipe_read+1);
 
         num = select(nfds, &rd, NULL, NULL, NULL);
         if (num == -1)
             perror("select()");
         else if (num) {
-	    if (FD_ISSET(exit_pipe_read, &rd)) {
-	      // A render thread wants us to exit
-	      break;
-	    }
+            if (FD_ISSET(exit_pipe_read, &rd)) {
+                // A render thread wants us to exit
+                break;
+            }
 
             //printf("Data is available now on %d fds\n", num);
             if (FD_ISSET(listen_fd, &rd)) {
@@ -488,8 +486,10 @@ void process_loop(int listen_fd)
                     int ret;
 
                     // TODO: to get highest performance we should loop here until we get EAGAIN
+                    memset(&cmd,0,sizeof(cmd));
                     ret = recv(fd, &cmd, sizeof(cmd), MSG_DONTWAIT);
-                    if (ret == sizeof(cmd)) {
+                    
+                    if ((ret == sizeof(cmd)) || (ret == sizeof(struct protocol_v2)) || (ret == sizeof(struct protocol_v1))) {
                         enum protoCmd rsp = rx_request(&cmd, fd);
 
                         if ((cmd.cmd == cmdRender) && (rsp == cmdNotDone)) {
@@ -1012,10 +1012,20 @@ int main(int argc, char **argv)
                 fprintf(stderr, "HTCP host name too long: %s\n", ini_htcpip);
                 exit(7);
             }
+
+            sprintf(buffer, "%s:parameterize_style", name);
+            char *ini_parameterize = iniparser_getstring(ini, buffer, (char *) "");
+            if (strlen(ini_parameterize) >= XMLCONFIG_MAX) {
+                fprintf(stderr, "Style parameterization function name too long: %s\n", ini_parameterize);
+                exit(7);
+            }
+
+
             strcpy(maps[iconf].xmlfile, ini_xmlpath);
             strcpy(maps[iconf].tile_dir, config.tile_dir);
             strcpy(maps[iconf].host, ini_hostname);
             strcpy(maps[iconf].htcpip, ini_htcpip);
+            strcpy(maps[iconf].parameterization_function, ini_parameterize);
         } else if (strncmp(name, "renderd", 7) == 0) {
             int render_sec = 0;
             if (sscanf(name, "renderd%i", &render_sec) != 1) {

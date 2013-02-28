@@ -77,6 +77,7 @@ typedef struct {
     int noHostnames;
     int minzoom;
     int maxzoom;
+    int enableOptions;
 } tile_config_rec;
 
 typedef struct {

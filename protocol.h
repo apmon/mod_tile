@@ -16,13 +16,24 @@ extern "C" {
  * causing responses to get slightly out of step with requests.
  */
 #define TILE_PATH_MAX (256)
-#define PROTO_VER (2)
+#define PROTO_VER (3)
 #define RENDER_SOCKET "/tmp/osm-renderd"
 #define XMLCONFIG_MAX 41
 
 enum protoCmd { cmdIgnore, cmdRender, cmdDirty, cmdDone, cmdNotDone, cmdRenderPrio, cmdRenderBulk };
 
 struct protocol {
+    int ver;
+    enum protoCmd cmd;
+    int x;
+    int y;
+    int z;
+    char xmlname[XMLCONFIG_MAX];
+    char mimetype[XMLCONFIG_MAX];
+    char options[XMLCONFIG_MAX];
+};
+
+struct protocol_v2 {
     int ver;
     enum protoCmd cmd;
     int x;

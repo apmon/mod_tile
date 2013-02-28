@@ -68,6 +68,7 @@ typedef struct {
     char htcphost[PATH_MAX];
     int htcpsock;
     int ok;
+    void (*parameterize_map)(mapnik::Map &m, char * parameter);
 } xmlmapconfig;
 
 
@@ -293,14 +294,55 @@ int init_cache_expire(char * htcphost) {
 }
 #endif
 
+static void parameterize_map_language(Map &m, char * parameter) {
+    int i;
+    char * data = strdup(parameter);
+    char * tok;
+    char ** ctx;
+    char name_replace[256];
 
+    name_replace[0] = 0;
+    syslog(LOG_DEBUG, "Internationalizing map to language parameter: %s", parameter);
+    tok = strtok(data,",");
+    if (!tok) return; //No parameterization given
+    strncat(name_replace, ", coalesce(", 255);
+    while (tok) {
+        if (strcmp(tok,"_") == 0) {
+            strncat(name_replace,"name,", 255);
+        } else {
+            strncat(name_replace,"tags->'name:", 255);
+            strncat(name_replace, tok, 255);
+            strncat(name_replace,"',", 255);
+        }
+        tok = strtok(NULL, ",");
+        
+    }
+    name_replace[strlen(name_replace) - 1] = 0;
+    strncat(name_replace,") as name", 255);
+    for (i = 0; i < m.layer_count(); i++) {
+        layer& l = m.getLayer(i);
+        
+        parameters params = l.datasource()->params();
+        if (params.find("table") != params.end()) {
+            if (boost::get<std::string>(params["table"]).find(",name") != std::string::npos) {
+                  std::string str = boost::get<std::string>(params["table"]);
+                  size_t pos = str.find(",name");
+                  str.replace(pos,5,name_replace);
+                  params["table"] = str;
+                  boost::shared_ptr<datasource> ds = datasource_cache::instance()->create(params);
+                  l.set_datasource(ds);
+              }
+          }
+          
+      }
+}
 
 #ifdef METATILE
 
 class metaTile {
     public:
-        metaTile(const std::string &xmlconfig, int x, int y, int z):
-            x_(x), y_(y), z_(z), xmlconfig_(xmlconfig)
+    metaTile(const std::string &xmlconfig, const char * options, int x, int y, int z):
+        x_(x), y_(y), z_(z), xmlconfig_(xmlconfig), options_(options)
         {
             clear();
         }
@@ -340,7 +382,7 @@ class metaTile {
             memset(&m, 0, sizeof(m));
             memset(&offsets, 0, sizeof(offsets));
 
-            xyz_to_meta(meta_path, sizeof(meta_path), tile_dir, xmlconfig_.c_str(), x_, y_, z_);
+            xyzo_to_meta(meta_path, sizeof(meta_path), tile_dir, xmlconfig_.c_str(), options_, x_, y_, z_);
             std::stringstream ss;
             ss << std::string(meta_path) << "." << pthread_self();
             std::string tmp(ss.str());
@@ -386,6 +428,7 @@ class metaTile {
 	      file.close();
 	      
 	      rename(tmp.c_str(), meta_path);
+          syslog(LOG_DEBUG,"Wrote out metatile %s", meta_path);
 	    } catch (std::ios_base::failure) {
 	      // Remove the temporary file
 	      unlink(tmp.c_str());
@@ -414,12 +457,15 @@ class metaTile {
 #endif
         int x_, y_, z_;
         std::string xmlconfig_;
+        const char *options_;
         std::string tile[METATILE][METATILE];
         static const int header_size = sizeof(struct meta_layout) + (sizeof(struct entry) * (METATILE * METATILE));
 };
 
 
-static enum protoCmd render(Map &m, char *xmlname, projection &prj, int x, int y, int z, unsigned int size, metaTile &tiles)
+
+
+static enum protoCmd render(xmlmapconfig *style, int x, int y, int z, char * parameters, unsigned int size, metaTile &tiles)
 {
     int render_size = 256 * size;
     double p0x = x * 256;
@@ -432,21 +478,24 @@ static enum protoCmd render(Map &m, char *xmlname, projection &prj, int x, int y
     tiling.fromPixelToLL(p0x, p0y, z);
     tiling.fromPixelToLL(p1x, p1y, z);
 
-    prj.forward(p0x, p0y);
-    prj.forward(p1x, p1y);
+    style->prj.forward(p0x, p0y);
+    style->prj.forward(p1x, p1y);
 
     mapnik::box2d<double> bbox(p0x, p0y, p1x,p1y);
-    m.resize(render_size, render_size);
-    m.zoom_to_box(bbox);
-    m.set_buffer_size(128);
+    style->map.resize(render_size, render_size);
+    style->map.zoom_to_box(bbox);
+    style->map.set_buffer_size(128);
     //m.zoom(size+1);
 
     mapnik::image_32 buf(render_size, render_size);
     try {
-      mapnik::agg_renderer<mapnik::image_32> ren(m,buf);
-      ren.apply();
+        Map map_parameterized = style->map;
+        if (style->parameterize_map)
+            style->parameterize_map(map_parameterized, parameters);
+        mapnik::agg_renderer<mapnik::image_32> ren(map_parameterized,buf);
+        ren.apply();
     } catch (std::exception const& ex) {
-      syslog(LOG_ERR, "ERROR: failed to render TILE %s %d %d-%d %d-%d", xmlname, z, x, x+size-1, y, y+size-1);
+      syslog(LOG_ERR, "ERROR: failed to render TILE %s %d %d-%d %d-%d", style->xmlname, z, x, x+size-1, y, y+size-1);
       syslog(LOG_ERR, "   reason: %s", ex.what());
       return cmdNotDone;
     }
@@ -463,7 +512,7 @@ static enum protoCmd render(Map &m, char *xmlname, projection &prj, int x, int y
 //    syslog(LOG_DEBUG, "DEBUG: DONE TILE %s %d %d-%d %d-%d", xmlname, z, x, x+size-1, y, y+size-1);
     return cmdDone; // OK
 }
-#else
+#else //metatile
 static enum protoCmd render(Map &m, const char *tile_dir, char *xmlname, projection &prj, int x, int y, int z)
 {
     char filename[PATH_MAX];
@@ -521,7 +570,7 @@ void *render_thread(void * arg)
 {
     xmlconfigitem * parentxmlconfig = (xmlconfigitem *)arg;
     xmlmapconfig maps[XMLCONFIGS_MAX];
-    int i,iMaxConfigs;
+    int i,j,iMaxConfigs;
 
     for (iMaxConfigs = 0; iMaxConfigs < XMLCONFIGS_MAX; ++iMaxConfigs) {
         if (parentxmlconfig[iMaxConfigs].xmlname[0] == 0 || parentxmlconfig[iMaxConfigs].xmlfile[0] == 0) break;
@@ -530,16 +579,25 @@ void *render_thread(void * arg)
         strcpy(maps[iMaxConfigs].tile_dir, parentxmlconfig[iMaxConfigs].tile_dir);
         maps[iMaxConfigs].map = mapnik::Map(RENDER_SIZE, RENDER_SIZE);
         maps[iMaxConfigs].ok = 1;
-	try {
-	  mapnik::load_map(maps[iMaxConfigs].map, maps[iMaxConfigs].xmlfile);
-	} catch (std::exception const& ex) {
-	  syslog(LOG_ERR, "An error occurred while loading the map layer '%s': %s", maps[iMaxConfigs].xmlname, ex.what());
-	  maps[iMaxConfigs].ok = 0;
-	} catch (...) {
-	  syslog(LOG_ERR, "An unknown error occurred while loading the map layer '%s'", maps[iMaxConfigs].xmlname);
-	  maps[iMaxConfigs].ok = 0;
-	}
+        try {
+            mapnik::load_map(maps[iMaxConfigs].map, maps[iMaxConfigs].xmlfile);
+        } catch (std::exception const& ex) {
+            syslog(LOG_ERR, "An error occurred while loading the map layer '%s': %s", maps[iMaxConfigs].xmlname, ex.what());
+            maps[iMaxConfigs].ok = 0;
+        } catch (...) {
+            syslog(LOG_ERR, "An unknown error occurred while loading the map layer '%s'", maps[iMaxConfigs].xmlname);
+            maps[iMaxConfigs].ok = 0;
+        }
         maps[iMaxConfigs].prj = projection(maps[iMaxConfigs].map.srs());
+        if (strcmp(parentxmlconfig[iMaxConfigs].parameterization_function, "") == 0) {
+            maps[iMaxConfigs].parameterize_map = NULL;
+        } else if (strcmp(parentxmlconfig[iMaxConfigs].parameterization_function, "language") == 0) {
+            maps[iMaxConfigs].parameterize_map = parameterize_map_language;
+        } else {
+            syslog(LOG_ERR, "An unknown parameterization function (%s) was specified for the mapstyle %s", parentxmlconfig[iMaxConfigs].parameterization_function,  maps[iMaxConfigs].xmlname);
+            maps[iMaxConfigs].ok = 0;
+        }
+        
 #ifdef HTCP_EXPIRE_CACHE
         strcpy(maps[iMaxConfigs].xmluri, parentxmlconfig[iMaxConfigs].xmluri);
         strcpy(maps[iMaxConfigs].host, parentxmlconfig[iMaxConfigs].host);
@@ -568,14 +626,14 @@ void *render_thread(void * arg)
             unsigned int size = MIN(METATILE, 1 << req->z);
             for (i = 0; i < iMaxConfigs; ++i) {
                 if (!strcmp(maps[i].xmlname, req->xmlname)) {
-                    metaTile tiles(req->xmlname, item->mx, item->my, req->z);
+                    metaTile tiles(req->xmlname, req->options, item->mx, item->my, req->z);
                     
                     if (maps[i].ok) {
                         timeval tim;
                         gettimeofday(&tim, NULL);
                         long t1=tim.tv_sec*1000+(tim.tv_usec/1000);
 
-                        ret = render(maps[i].map, req->xmlname, maps[i].prj, item->mx, item->my, req->z, size, tiles);
+                        ret = render(&(maps[i]), item->mx, item->my, req->z, req->options, size, tiles);
 
                         gettimeofday(&tim, NULL);
                         long t2=tim.tv_sec*1000+(tim.tv_usec/1000);

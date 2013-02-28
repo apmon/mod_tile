@@ -1132,7 +1132,7 @@ static int tile_handler_serve(request_rec *r)
     }
 
     err_msg[0] = 0;
-    len = tile_read(scfg->tile_dir, cmd->xmlname, cmd->x, cmd->y, cmd->z, buf, tile_max, &compressed, err_msg);
+    len = tile_read(scfg->tile_dir, cmd->xmlname, cmd->options, cmd->x, cmd->y, cmd->z, buf, tile_max, &compressed, err_msg);
     if (len > 0) {
         if (compressed) {
             const char* accept_encoding = apr_table_get(r->headers_in,"Accept-Encoding");
@@ -1236,10 +1236,20 @@ static int tile_translate(request_rec *r)
                 return OK;
             }
             char extension[256];
-            n = sscanf(r->uri+strlen(tile_config->baseuri),"%d/%d/%d.%[a-z]/%10s", &(cmd->z), &(cmd->x), &(cmd->y), extension, option);
-            if (n < 4) {
-                ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "tile_translate: Invalid URL for tilelayer %s", tile_config->xmlname);
-                return DECLINED;
+            char parameters[256];
+            if (tile_config->enableOptions) {
+                n = sscanf(r->uri+strlen(tile_config->baseuri),"%[^/]/%d/%d/%d.%[a-z]/%10s", parameters,&(cmd->z), &(cmd->x), &(cmd->y), extension, option);
+                if (n < 5) {
+                    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "tile_translate: Invalid URL for tilelayer %s with options", tile_config->xmlname);
+                    return DECLINED;
+                }
+            } else {
+                n = sscanf(r->uri+strlen(tile_config->baseuri),"%d/%d/%d.%[a-z]/%10s", &(cmd->z), &(cmd->x), &(cmd->y), extension, option);
+                if (n < 4) {
+                    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "tile_translate: Invalid URL for tilelayer %s without options", tile_config->xmlname);
+                    return DECLINED;
+                }
+                parameters[0] = 0;
             }
             if (strcmp(extension, tile_config->fileExtension) != 0) {
                 ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "tile_translate: Invalid file extension (%s) for tilelayer %s, required %s",
@@ -1263,6 +1273,8 @@ static int tile_translate(request_rec *r)
             }
 
             strcpy(cmd->xmlname, tile_config->xmlname);
+            strcpy(cmd->mimetype, tile_config->mimeType);
+            strcpy(cmd->options,parameters);
 
             // Store a copy for later
             rdata->cmd = cmd;
@@ -1272,13 +1284,13 @@ static int tile_translate(request_rec *r)
             // Generate the tile filename?
             char abs_path[PATH_MAX];
 #ifdef METATILE
-            xyz_to_meta(abs_path, sizeof(abs_path), scfg->tile_dir, cmd->xmlname, cmd->x, cmd->y, cmd->z);
+            xyzo_to_meta(abs_path, sizeof(abs_path), scfg->tile_dir, cmd->xmlname, cmd->options, cmd->x, cmd->y, cmd->z);
 #else
             xyz_to_path(abs_path, sizeof(abs_path), scfg->tile_dir, cmd->xmlname, cmd->x, cmd->y, cmd->z);
 #endif
             r->filename = apr_pstrdup(r->pool, abs_path);
 
-            if (n == 5) {
+            if ((tile_config->enableOptions && (n == 6)) || ( !tile_config->enableOptions && (n == 5))) {
                 if (!strcmp(option, "status")) r->handler = "tile_status";
                 else if (!strcmp(option, "dirty")) r->handler = "tile_dirty";
                 else return DECLINED;
@@ -1517,7 +1529,7 @@ static void register_hooks(__attribute__((unused)) apr_pool_t *p)
 static const char *_add_tile_config(cmd_parms *cmd, void *mconfig,
                                     const char *baseuri, const char *name, int minzoom, int maxzoom,
                                     const char * fileExtension, const char *mimeType, const char *description, const char * attribution,
-                                    int noHostnames, char ** hostnames, char * cors)
+                                    int noHostnames, char ** hostnames, char * cors, int parameterize)
 {
     if (strlen(name) == 0) {
         return "ConfigName value must not be null";
@@ -1568,6 +1580,7 @@ static const char *_add_tile_config(cmd_parms *cmd, void *mconfig,
     tilecfg->noHostnames = noHostnames;
     tilecfg->hostnames = hostnames;
     tilecfg->cors = cors;
+    tilecfg->enableOptions = parameterize;
 
     ap_log_error(APLOG_MARK, APLOG_NOTICE, APR_SUCCESS, cmd->server,
                     "Loading tile config %s at %s for zooms %i - %i from tile directory %s with extension .%s and mime type %s",
@@ -1580,17 +1593,17 @@ static const char *_add_tile_config(cmd_parms *cmd, void *mconfig,
 static const char *add_tile_mime_config(cmd_parms *cmd, void *mconfig, const char *baseuri, const char *name, const char * fileExtension)
 {
     if (strcmp(fileExtension,"png") == 0) {
-        return _add_tile_config(cmd, mconfig, baseuri, name, 0, MAX_ZOOM, fileExtension, "image/png",NULL,DEFAULT_ATTRIBUTION,0,NULL,NULL);
+        return _add_tile_config(cmd, mconfig, baseuri, name, 0, MAX_ZOOM, fileExtension, "image/png",NULL,DEFAULT_ATTRIBUTION,0,NULL,NULL, 0);
     }
     if (strcmp(fileExtension,"js") == 0) {
-        return _add_tile_config(cmd, mconfig, baseuri, name, 0, MAX_ZOOM, fileExtension, "text/javascript",NULL,DEFAULT_ATTRIBUTION,0,NULL,"*");
+        return _add_tile_config(cmd, mconfig, baseuri, name, 0, MAX_ZOOM, fileExtension, "text/javascript",NULL,DEFAULT_ATTRIBUTION,0,NULL,"*", 0);
     }
-    return _add_tile_config(cmd, mconfig, baseuri, name, 0, MAX_ZOOM, fileExtension, "image/png",NULL,DEFAULT_ATTRIBUTION,0,NULL,NULL);
+    return _add_tile_config(cmd, mconfig, baseuri, name, 0, MAX_ZOOM, fileExtension, "image/png",NULL,DEFAULT_ATTRIBUTION,0,NULL,NULL, 0);
 }
 
 static const char *add_tile_config(cmd_parms *cmd, void *mconfig, const char *baseuri, const char *name)
 {
-    return _add_tile_config(cmd, mconfig, baseuri, name, 0, MAX_ZOOM, "png", "image/png",NULL,DEFAULT_ATTRIBUTION,0,NULL,NULL);
+    return _add_tile_config(cmd, mconfig, baseuri, name, 0, MAX_ZOOM, "png", "image/png",NULL,DEFAULT_ATTRIBUTION,0,NULL,NULL, 0);
 }
 
 static const char *load_tile_config(cmd_parms *cmd, void *mconfig, const char *conffile)
@@ -1614,6 +1627,7 @@ static const char *load_tile_config(cmd_parms *cmd, void *mconfig, const char *c
     int tilelayer = 0;
     int minzoom = 0;
     int maxzoom = MAX_ZOOM;
+    int parameterize = 0;
 
     if (strlen(conffile) == 0) {
         strcpy(filename, RENDERD_CONFIG);
@@ -1634,7 +1648,7 @@ static const char *load_tile_config(cmd_parms *cmd, void *mconfig, const char *c
             /*Add the previous section to the configuration */
             if (tilelayer == 1) {
                 result = _add_tile_config(cmd, mconfig, url, xmlname, minzoom, maxzoom, fileExtension, mimeType,
-                                          description,attribution,noHostnames,hostnames, cors);
+                                          description,attribution,noHostnames,hostnames, cors, parameterize);
                 if (description) {free(description); description = NULL;} if (attribution) {free(attribution); attribution = NULL;}
                 if (hostnames) {free(hostnames); hostnames = NULL;} if (cors) {free(cors); cors = NULL;}
                 if (result != NULL) {
@@ -1668,6 +1682,7 @@ static const char *load_tile_config(cmd_parms *cmd, void *mconfig, const char *c
             noHostnames = 0;
             minzoom = 0;
             maxzoom = MAX_ZOOM;
+            parameterize = 0;
         } else if (sscanf(line, "%[^=]=%[^;#]", key, value) == 2
                ||  sscanf(line, "%[^=]=\"%[^\"]\"", key, value) == 2) {
 
@@ -1729,13 +1744,16 @@ static const char *load_tile_config(cmd_parms *cmd, void *mconfig, const char *c
             if (!strcmp(key, "MAXZOOM")){
                 maxzoom = atoi(value);
             }
+            if (!strcmp(key,"PARAMETERIZE_STYLE")) {
+                parameterize = 1;
+            }
         }
     }
     if (tilelayer == 1) {
         ap_log_error(APLOG_MARK, APLOG_NOTICE, APR_SUCCESS, cmd->server,
                 "Committing tile config %s", xmlname);
         result = _add_tile_config(cmd, mconfig, url, xmlname, minzoom, maxzoom, fileExtension, mimeType,
-                                  description,attribution,noHostnames,hostnames, cors);
+                                  description,attribution,noHostnames,hostnames, cors, parameterize);
         if (description) free(description);
         if (attribution) free(attribution);
         if (hostnames) free(hostnames);
