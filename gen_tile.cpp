@@ -20,9 +20,9 @@
 #include "gen_tile.h"
 #include "render_config.h"
 #include "daemon.h"
-#include "protocol.h"
-#include "dir_utils.h"
 #include "store.h"
+#include "metatile.h"
+#include "protocol.h"
 
 #ifdef HTCP_EXPIRE_CACHE
 #include <sys/socket.h>
@@ -60,7 +60,7 @@ static const int maxZoom = MAX_ZOOM;
 struct xmlmapconfig {
     char xmlname[XMLCONFIG_MAX];
     char xmlfile[PATH_MAX];
-    char tile_dir[PATH_MAX];
+    struct storage_backend * store;
     Map map;
     projection prj;
     char xmluri[PATH_MAX];
@@ -339,88 +339,71 @@ class metaTile {
             return (x & mask) * METATILE + (y & mask);
         }
 
-        void save(const char *tile_dir)
+        void save(struct storage_backend * store)
         {
             int ox, oy, limit;
             size_t offset;
             struct meta_layout m;
-            char meta_path[PATH_MAX];
             struct entry offsets[METATILE * METATILE];
+            unsigned char * metatilebuffer;
 
             memset(&m, 0, sizeof(m));
             memset(&offsets, 0, sizeof(offsets));
 
-            xyz_to_meta(meta_path, sizeof(meta_path), tile_dir, xmlconfig_.c_str(), x_, y_, z_);
-            std::stringstream ss;
-            ss << std::string(meta_path) << "." << pthread_self();
-            std::string tmp(ss.str());
-
-            if (mkdirp(tmp.c_str()))
-	      throw std::runtime_error("An error when creating tile directory");
-
-	    try {
-	      std::ofstream file;
-	      file.exceptions(std::ios_base::failbit | std::ios_base::badbit);
-	      file.open(tmp.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
-
-	      // Create and write header
-	      m.count = METATILE * METATILE;
-	      memcpy(m.magic, META_MAGIC, strlen(META_MAGIC));
-	      m.x = x_;
-	      m.y = y_;
-	      m.z = z_;
-	      file.write((const char *)&m, sizeof(m));
-	      
-	      offset = header_size;
-	      limit = (1 << z_);
-	      limit = MIN(limit, METATILE);
-	      
-	      // Generate offset table
-	      for (ox=0; ox < limit; ox++) {
-                for (oy=0; oy < limit; oy++) {
-		  int mt = xyz_to_meta_offset(x_ + ox, y_ + oy, z_);
-		  offsets[mt].offset = offset;
-		  offsets[mt].size   = tile[ox][oy].size();
-		  offset += offsets[mt].size;
-                }
-	      }
-	      file.write((const char *)&offsets, sizeof(offsets));
-	      
-	      // Write tiles
-	      for (ox=0; ox < limit; ox++) {
-                for (oy=0; oy < limit; oy++) {
-		  file.write((const char *)tile[ox][oy].data(), tile[ox][oy].size());
-                }
-	      }
-	      
-	      file.close();
-	      
-	      rename(tmp.c_str(), meta_path);
-	    } catch (std::ios_base::failure) {
-	      // Remove the temporary file
-	      unlink(tmp.c_str());
-	      throw std::runtime_error("An error occured when writing a metatile\n");
-	    }
-            //printf("Produced .meta: %s\n", meta_path);
-        }
-
-#ifdef HTCP_EXPIRE_CACHE
-        void expire_tiles(int sock, char * host, char * uri) {
-            if (sock < 0) {
-                return;
-            }
-            syslog(LOG_INFO, "Purging metatile via HTCP cache expiry");
-            int ox, oy;
-            int limit = (1 << z_);
+            // Create and write header
+            m.count = METATILE * METATILE;
+            memcpy(m.magic, META_MAGIC, strlen(META_MAGIC));
+            m.x = x_;
+            m.y = y_;
+            m.z = z_;
+            
+            offset = header_size;
+            limit = (1 << z_);
             limit = MIN(limit, METATILE);
-
+            
             // Generate offset table
             for (ox=0; ox < limit; ox++) {
                 for (oy=0; oy < limit; oy++) {
-                    cache_expire(sock, host, uri, (x_ + ox), (y_ + oy), z_);
+                    int mt = xyz_to_meta_offset(x_ + ox, y_ + oy, z_);
+                    offsets[mt].offset = offset;
+                    offsets[mt].size   = tile[ox][oy].size();
+                    offset += offsets[mt].size;
                 }
             }
+
+            metatilebuffer = (unsigned char *) malloc(offset);
+            memset(metatilebuffer, 0, offset);
+            memcpy(metatilebuffer,&m,sizeof(m));
+            memcpy(metatilebuffer + sizeof(m), &offsets, sizeof(offsets));
+            
+            // Write tiles
+            for (ox=0; ox < limit; ox++) {
+                for (oy=0; oy < limit; oy++) {
+                    memcpy(metatilebuffer + offsets[xyz_to_meta_offset(x_ + ox, y_ + oy, z_)].offset, (const void *)tile[ox][oy].data(), tile[ox][oy].size());
+                }
+            }
+            
+            store->metatile_write(store, xmlconfig_.c_str(),x_,y_,z_,metatilebuffer, offset);
+
         }
+
+#ifdef HTCP_EXPIRE_CACHE
+    void expire_tiles(int sock, char * host, char * uri) {
+        if (sock < 0) {
+            return;
+        }
+        syslog(LOG_INFO, "Purging metatile via HTCP cache expiry");
+        int ox, oy;
+        int limit = (1 << z_);
+        limit = MIN(limit, METATILE);
+        
+        // Generate offset table
+        for (ox=0; ox < limit; ox++) {
+            for (oy=0; oy < limit; oy++) {
+                cache_expire(sock, host, uri, (x_ + ox), (y_ + oy), z_);
+            }
+        }
+    }
 #endif
         int x_, y_, z_;
         std::string xmlconfig_;
@@ -473,7 +456,7 @@ static enum protoCmd render(Map &m, char *xmlname, projection &prj, int x, int y
 //    syslog(LOG_DEBUG, "DEBUG: DONE TILE %s %d %d-%d %d-%d", xmlname, z, x, x+size-1, y, y+size-1);
     return cmdDone; // OK
 }
-#else
+#else //METATILE
 static enum protoCmd render(Map &m, const char *tile_dir, char *xmlname, projection &prj, int x, int y, int z)
 {
     char filename[PATH_MAX];
@@ -513,7 +496,7 @@ static enum protoCmd render(Map &m, const char *tile_dir, char *xmlname, project
 
     return cmdDone; // OK
 }
-#endif
+#endif //METATILE
 
 
 void render_init(const char *plugins_dir, const char* font_dir, int font_dir_recurse)
@@ -537,7 +520,7 @@ void *render_thread(void * arg)
         if (parentxmlconfig[iMaxConfigs].xmlname[0] == 0 || parentxmlconfig[iMaxConfigs].xmlfile[0] == 0) break;
         strcpy(maps[iMaxConfigs].xmlname, parentxmlconfig[iMaxConfigs].xmlname);
         strcpy(maps[iMaxConfigs].xmlfile, parentxmlconfig[iMaxConfigs].xmlfile);
-        strcpy(maps[iMaxConfigs].tile_dir, parentxmlconfig[iMaxConfigs].tile_dir);
+        maps[iMaxConfigs].store = init_storage_backend(parentxmlconfig[iMaxConfigs].tile_dir);
         maps[iMaxConfigs].map = mapnik::Map(RENDER_SIZE, RENDER_SIZE);
         maps[iMaxConfigs].ok = 1;
 	try {
@@ -599,7 +582,7 @@ void *render_thread(void * arg)
 
                     if (ret == cmdDone) {
                         try {
-                            tiles.save(maps[i].tile_dir);
+                            tiles.save(maps[i].store);
                         } catch (...) {
                             // Treat any error as fatal and request end of processing
                             syslog(LOG_ERR, "Received error when writing metatile to disk, requesting exit.");
