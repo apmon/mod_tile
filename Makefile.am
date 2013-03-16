@@ -5,20 +5,20 @@ ACLOCAL_AMFLAGS = -I m4
 
 AM_CPPFLAGS = $(FT2_CFLAGS) $(PTHREAD_CFLAGS) $(BOOST_CPPFLAGS) $(ICU_CPPFLAGS)
 
-#bin_PROGRAMS = render_old render_expired render_list speedtest render_old renderd convert_meta
-bin_PROGRAMS = renderd
+bin_PROGRAMS = renderd render_expired render_list render_speedtest render_old
 
 renderddir = $(sysconfdir)
 renderd_SOURCES = protocol.h daemon.h daemon.c daemon_compat.c gen_tile.h gen_tile.cpp store.c store_file.c store_file_utils.c sys_utils.c sys_utils.h render_config.h iniparser3.0b/libiniparser.la
 renderd_LDADD = $(FT2_LIBS) $(PTHREAD_CFLAGS) $(MAPNIK_LDFLAGS) $(BOOST_LDFLAGS) $(ICU_LDFLAGS) -Liniparser3.0b/.libs -liniparser
 renderd_DATA = renderd.conf
-#speedtest_SOURCES = render_config.h protocol.h dir_utils.c dir_utils.h speedtest.cpp
-#render_list_SOURCES = render_config.h protocol.h dir_utils.c dir_utils.h render_list.c sys_utils.c sys_utils.h
-#render_list_LDADD = $(PTHREAD_CFLAGS)
-#render_expired_SOURCES = render_config.h protocol.h dir_utils.c dir_utils.h render_expired.c
-#render_expired_LDADD = $(PTHREAD_CFLAGS)
-#render_old_SOURCES = render_config.h protocol.h dir_utils.c dir_utils.h render_old.c sys_utils.c sys_utils.h
-#render_old_LDADD = $(PTHREAD_CFLAGS)
+render_speedtest_SOURCES = render_config.h protocol.h speedtest.cpp render_submit_queue.c sys_utils.c
+render_speedtest_LDADD = $(PTHREAD_CFLAGS)
+render_list_SOURCES = render_config.h protocol.h store.c store_file.c store_file_utils.c render_list.c sys_utils.c sys_utils.h render_submit_queue.c
+render_list_LDADD = $(PTHREAD_CFLAGS)
+render_expired_SOURCES = render_config.h protocol.h store.c store_file.c store_file_utils.c render_expired.c render_submit_queue.c sys_utils.c
+render_expired_LDADD = $(PTHREAD_CFLAGS)
+render_old_SOURCES = render_config.h protocol.h store_file_utils.c render_old.c sys_utils.c sys_utils.h render_submit_queue.c
+render_old_LDADD = $(PTHREAD_CFLAGS)
 #convert_meta_SOURCES = render_config.h protocol.h dir_utils.c dir_utils.h store.c convert_meta.c
 
 all-local:

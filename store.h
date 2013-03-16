@@ -23,7 +23,7 @@ extern "C" {
         int (*metatile_delete)(struct storage_backend * store, const char *xmlconfig, int x, int y, int z);
         int (*metatile_expire)(struct storage_backend * store, const char *xmlconfig, int x, int y, int z);
         char * (*tile_storage_id)(struct storage_backend * store, const char *xmlconfig, int x, int y, int z, char * string);
-        int (*close_storage)();
+        int (*close_storage)(struct storage_backend * store);
 
         void * storage_ctx;
     };

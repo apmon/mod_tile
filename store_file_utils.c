@@ -65,6 +65,23 @@ int mkdirp(const char *path) {
  * to work
  */
 
+static int check_xyz(int x, int y, int z) {
+    int oob, limit;
+
+    // Validate tile co-ordinates
+    oob = (z < 0 || z > MAX_ZOOM);
+    if (!oob) {
+         // valid x/y for tiles are 0 ... 2^zoom-1
+        limit = (1 << z) - 1;
+        oob =  (x < 0 || x > limit || y < 0 || y > limit);
+    }
+
+    if (oob)
+        fprintf(stderr, "got bad co-ords: x(%d) y(%d) z(%d)\n", x, y, z);
+
+    return oob;
+}
+
 void xyz_to_path(char *path, size_t len, const char *tile_dir, const char *xmlconfig, int x, int y, int z)
 {
 #ifdef DIRECTORY_HASH
@@ -85,10 +102,6 @@ void xyz_to_path(char *path, size_t len, const char *tile_dir, const char *xmlco
     return;
 }
 
-
-
-
-/*
 int path_to_xyz(const char *tilepath, const char *path, char *xmlconfig, int *px, int *py, int *pz)
 {
 #ifdef DIRECTORY_HASH
@@ -132,7 +145,6 @@ int path_to_xyz(const char *tilepath, const char *path, char *xmlconfig, int *px
     }
 #endif
 }
-*/
 
 #ifdef METATILE
 // Returns the path to the meta-tile and the offset within the meta-tile
@@ -152,7 +164,6 @@ int xyz_to_meta(char *path, size_t len, const char *tile_dir, const char *xmlcon
         x >>= 4;
         y >>= 4;
     }
-    printf("%s/%s/%d/%u/%u/%u/%u/%u.meta", tile_dir, xmlconfig, z, hash[4], hash[3], hash[2], hash[1], hash[0]);
 #ifdef DIRECTORY_HASH
     snprintf(path, len, "%s/%s/%d/%u/%u/%u/%u/%u.meta", tile_dir, xmlconfig, z, hash[4], hash[3], hash[2], hash[1], hash[0]);
 #else

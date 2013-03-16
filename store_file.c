@@ -380,6 +380,8 @@ static struct stat_info file_tile_stat(struct storage_backend * store, const cha
         tile_stat.expired = 0;
     }
 
+    printf("Checking %s for expiry: mtime %i planet %i\n", meta_path, tile_stat.mtime, getPlanetTime(store->storage_ctx, xmlconfig));
+
     return tile_stat;
 }
 
@@ -464,16 +466,16 @@ static int file_metatile_expire(struct storage_backend * store, const char *xmlc
     return 0;
 }
 
-static int file_close_storage() {
+static int file_close_storage(struct storage_backend * store) {
+    free(store->storage_ctx);
+    store->storage_ctx = NULL;
     return 0;
 }
 
-struct storage_backend * init_storage_file(const char * tile_dir_cpy) {
+struct storage_backend * init_storage_file(const char * tile_dir) {
     
     struct storage_backend * store = malloc(sizeof(struct storage_backend));
-    char * tile_dir = malloc(sizeof(char) * strlen(tile_dir_cpy) + 1);
-    strcpy(tile_dir, tile_dir_cpy);
-    store->storage_ctx = tile_dir;
+    store->storage_ctx = strdup(tile_dir);
 
     store->tile_read = &file_tile_read;
     store->tile_stat = &file_tile_stat;
