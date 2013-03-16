@@ -23,6 +23,7 @@
 #include "protocol.h"
 #include "render_config.h"
 #include "store_file_utils.h"
+#include "render_submit_queue.h"
 #include "sys_utils.h"
 
 
@@ -290,7 +291,7 @@ int main(int argc, char **argv)
         exit(7);
     }
 
-    spawn_workers(numThreads, spath);
+    spawn_workers(numThreads, spath, max_load);
 
     if (map) {
         render_layer(tile_dir, map);

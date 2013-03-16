@@ -4,6 +4,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <pthread.h>
+#include <stdlib.h>
 
 #include "render_submit_queue.h"
 #include "sys_utils.h"
@@ -19,7 +20,7 @@ static int maxLoad = 0;
 
 unsigned int qLen;
 struct qItem {
-    const char *mapname;
+    char *mapname;
     int x,y,z;
     struct qItem *next;
 };

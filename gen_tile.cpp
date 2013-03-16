@@ -345,7 +345,7 @@ class metaTile {
             size_t offset;
             struct meta_layout m;
             struct entry offsets[METATILE * METATILE];
-            unsigned char * metatilebuffer;
+            char * metatilebuffer;
 
             memset(&m, 0, sizeof(m));
             memset(&offsets, 0, sizeof(offsets));
@@ -371,7 +371,7 @@ class metaTile {
                 }
             }
 
-            metatilebuffer = (unsigned char *) malloc(offset);
+            metatilebuffer = (char *) malloc(offset);
             memset(metatilebuffer, 0, offset);
             memcpy(metatilebuffer,&m,sizeof(m));
             memcpy(metatilebuffer + sizeof(m), &offsets, sizeof(offsets));

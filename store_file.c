@@ -261,7 +261,7 @@ static time_t getPlanetTime(const char * tile_dir, const char * xmlname)
     return st_stat.st_mtime;
 }
 
-static int file_tile_read(struct storage_backend * store, const char *xmlconfig, int x, int y, int z, unsigned char *buf, size_t sz, int * compressed, unsigned char * log_msg) {
+static int file_tile_read(struct storage_backend * store, const char *xmlconfig, int x, int y, int z, char *buf, size_t sz, int * compressed, char * log_msg) {
 
     char path[PATH_MAX];
     int meta_offset, fd;
@@ -380,8 +380,6 @@ static struct stat_info file_tile_stat(struct storage_backend * store, const cha
         tile_stat.expired = 0;
     }
 
-    printf("Checking %s for expiry: mtime %i planet %i\n", meta_path, tile_stat.mtime, getPlanetTime(store->storage_ctx, xmlconfig));
-
     return tile_stat;
 }
 
@@ -394,7 +392,7 @@ static char * file_tile_storage_id(struct storage_backend * store, const char *x
 }
     
 
-static int file_metatile_write(struct storage_backend * store, const char *xmlconfig, int x, int y, int z, const unsigned char *buf, int sz) {
+static int file_metatile_write(struct storage_backend * store, const char *xmlconfig, int x, int y, int z, const char *buf, int sz) {
     int fd;
     char meta_path[PATH_MAX];
     char * tmp;
@@ -405,7 +403,7 @@ static int file_metatile_write(struct storage_backend * store, const char *xmlco
     //(char *path, size_t len, const char *tile_dir, const char *xmlconfig, int x, int y, int z)
     fprintf(stderr, "Trying to create and write a file: %s\n", meta_path);
     tmp = malloc(sizeof(char) * strlen(meta_path) + 12);
-    sprintf(tmp, "%s.%i", meta_path, pthread_self());
+    sprintf(tmp, "%s.%lu", meta_path, pthread_self());
     fprintf(stderr, "Create and write tmp file: %s\n", tmp);
     if (mkdirp(tmp))
         return -1;
@@ -425,6 +423,8 @@ static int file_metatile_write(struct storage_backend * store, const char *xmlco
     rename(tmp, meta_path);
     fprintf(stderr, "Renamed and written file: %s\n", meta_path);
     free(tmp);
+
+    return sz;
 }
 
 static int file_metatile_delete(struct storage_backend * store, const char *xmlconfig, int x, int y, int z) {

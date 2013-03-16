@@ -9,8 +9,9 @@
 
 #include "store.h"
 #include "store_file.h"
+#include "store_memcached.h"
 
 struct storage_backend * init_storage_backend(const char * options) {
-    struct storage_backend * store = init_storage_file(options);
+    struct storage_backend * store = init_storage_memcached(options);
     return store;
 }

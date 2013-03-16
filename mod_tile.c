@@ -295,7 +295,7 @@ static enum tileState tile_state(request_rec *r, struct protocol *cmd)
 
     stat = tile_config->store->tile_stat(tile_config->store, cmd->xmlname, cmd->x, cmd->y, cmd->z);
 
-    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "tile_state: determined state of %s %i %i %i on store %x: Tile size: %i, expired: %i created: %i",
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "tile_state: determined state of %s %i %i %i on store %p: Tile size: %li, expired: %i created: %li",
                       cmd->xmlname, cmd->x, cmd->y, cmd->z, tile_config->store, stat.size, stat.expired, stat.mtime);
 
     r->finfo.mtime = stat.mtime * 1000000;
@@ -1067,7 +1067,7 @@ static int tile_handler_serve(request_rec *r)
     err_msg[0] = 0;
 
     len = rdata->store->tile_read(rdata->store, cmd->xmlname, cmd->x, cmd->y, cmd->z, buf, tile_max, &compressed, err_msg);
-    ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
                   "Read tile of length %i from disk %s", len, err_msg);
     if (len > 0) {
         if (compressed) {
@@ -1241,8 +1241,6 @@ static int mod_tile_post_config(apr_pool_t *pconf, apr_pool_t *plog,
     delaypool *delayp;
     int i;
 
-    ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s, "Post config setup of server");
-
     /*
      * The following checks if this routine has been called before.
      * This is necessary because the parent process gets initialized
@@ -1412,7 +1410,7 @@ static void mod_tile_child_init(apr_pool_t *p, server_rec *s)
     int i;
 
     ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, s,
-                     "Initialising a new apache child instance");
+                     "Initialising a new Apache child instance");
 
      /*
       * Re-open the mutex for the child. Note we're reusing
@@ -1430,11 +1428,13 @@ static void mod_tile_child_init(apr_pool_t *p, server_rec *s)
          exit(1); /* Ugly, but what else? */
      }
 
+     //TODO: This doesn't seem to work, as at this point config->nelts is always 0
      ap_conf_vector_t *sconf = s->module_config; 
      tile_server_conf *scfg = ap_get_module_config(sconf, &tile_module); 
      tile_config_rec *tile_configs = (tile_config_rec *) scfg->configs->elts;
+
      for (i = 0; i < scfg->configs->nelts; i++) {
-         tile_configs[i].store = init_storage_backend(&(scfg->tile_dir));
+         tile_configs[i].store = init_storage_backend(scfg->tile_dir);
          if (tile_configs[i].store == NULL) {
              ap_log_error(APLOG_MARK, APLOG_WARNING, rs, s,
                      "Failed to initialise storage backend %s for tile layer %s",
@@ -1514,7 +1514,7 @@ static const char *_add_tile_config(cmd_parms *cmd, void *mconfig,
     tilecfg->noHostnames = noHostnames;
     tilecfg->hostnames = hostnames;
     tilecfg->cors = cors;
-    tilecfg->store = init_storage_backend(&(scfg->tile_dir));
+    tilecfg->store = init_storage_backend(scfg->tile_dir);
 
     ap_log_error(APLOG_MARK, APLOG_NOTICE, APR_SUCCESS, cmd->server,
                     "Loading tile config %s at %s for zooms %i - %i from tile directory %s with extension .%s and mime type %s",
@@ -1962,7 +1962,7 @@ static const char *mod_tile_delaypool_render_config(cmd_parms *cmd, void *mconfi
 static void *create_tile_config(apr_pool_t *p, server_rec *s)
 {
     tile_server_conf * scfg = (tile_server_conf *) apr_pcalloc(p, sizeof(tile_server_conf));
-
+    
     scfg->configs = apr_array_make(p, 4, sizeof(tile_config_rec));
     scfg->request_timeout = REQUEST_TIMEOUT;
     scfg->request_timeout_priority = REQUEST_TIMEOUT;
