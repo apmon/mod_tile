@@ -68,7 +68,7 @@ typedef struct stats_data {
 } stats_data;
 
 typedef struct {
-    struct storage_backend * store;
+    const char * store;
     char xmlname[XMLCONFIG_MAX];
     char baseuri[PATH_MAX];
     char fileExtension[PATH_MAX];

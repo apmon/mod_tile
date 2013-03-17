@@ -261,26 +261,40 @@ int request_tile(request_rec *r, struct protocol *cmd, int renderImmediately)
     return 0;
 }
 
-/* static enum tileState tile_state_once(request_rec *r)
-{
-    apr_status_t rv;
-    apr_finfo_t *finfo = &r->finfo;
+static struct storage_backend * get_storage_backend(request_rec *r, int tile_layer) {
+    struct storage_backend ** stores = NULL;
+    ap_conf_vector_t *sconf = r->server->module_config;
+    tile_server_conf *scfg = ap_get_module_config(sconf, &tile_module);
+    apr_pool_t *lifecycle_pool = r->server->process->pool;
+    char * memkey = apr_psprintf(r->pool, "mod_tile_storage_backends");
 
-    if (!(finfo->valid & APR_FINFO_MTIME)) {
-        rv = apr_stat(finfo, r->filename, APR_FINFO_MIN, r->pool);
-        if (rv != APR_SUCCESS) {
-            ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "tile_state_once: File %s is missing", r->filename);
-            return tileMissing;
-        }
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "get_storage_backend: Retrieving storage backend for tile layer %i in lifecycle %s and pool %x",
+            tile_layer, r->server->process->short_name, lifecycle_pool);
+
+    tile_config_rec *tile_configs = (tile_config_rec *) scfg->configs->elts;
+    tile_config_rec *tile_config = &tile_configs[tile_layer];
+
+    //
+
+    if (apr_pool_userdata_get((void **)&stores,memkey, lifecycle_pool) != APR_SUCCESS) {
+        ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "get_storage_backend: Failed horribly!", r->server->process->short_name);
+    }
+    if (stores == NULL) {
+        ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "get_storage_backend: No storage backends for this lifecycle, creating it in thread %s", r->server->process->short_name);
+        stores = apr_pcalloc(lifecycle_pool, sizeof(struct storage_backend *) * scfg->configs->nelts);
+        apr_pool_userdata_set(stores, "mod_tile_storage_backends", NULL, lifecycle_pool);
     }
 
-    if (finfo->mtime < getPlanetTime(r)) {
-        ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "tile_state_once: File %s is old", r->filename);
-        return tileOld;
+    ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "get_storage_backend: Found backends for this lifecycle %i", stores);
+
+    if (stores[tile_layer] == NULL) {
+        ap_log_rerror(APLOG_MARK, APLOG_INFO, 0, r, "get_storage_backend: No storage backend in current lifecycle %s for current tile layer %i",
+                r->server->process->short_name, tile_layer);
+        stores[tile_layer] = init_storage_backend(tile_config->store);
     }
 
-    return tileCurrent;
-    } */
+    return stores[tile_layer];
+}
 
 static enum tileState tile_state(request_rec *r, struct protocol *cmd)
 {
@@ -293,10 +307,10 @@ static enum tileState tile_state(request_rec *r, struct protocol *cmd)
     tile_config_rec *tile_configs = (tile_config_rec *) scfg->configs->elts;
     tile_config_rec *tile_config = &tile_configs[rdata->layerNumber];
 
-    stat = tile_config->store->tile_stat(tile_config->store, cmd->xmlname, cmd->x, cmd->y, cmd->z);
+    stat = rdata->store->tile_stat(rdata->store, cmd->xmlname, cmd->x, cmd->y, cmd->z);
 
     ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "tile_state: determined state of %s %i %i %i on store %p: Tile size: %li, expired: %i created: %li",
-                      cmd->xmlname, cmd->x, cmd->y, cmd->z, tile_config->store, stat.size, stat.expired, stat.mtime);
+                      cmd->xmlname, cmd->x, cmd->y, cmd->z, rdata->store, stat.size, stat.expired, stat.mtime);
 
     r->finfo.mtime = stat.mtime * 1000000;
     r->finfo.atime = stat.atime * 1000000;
@@ -1020,6 +1034,7 @@ static int tile_handler_serve(request_rec *r)
 {
     const int tile_max = MAX_SIZE;
     unsigned char err_msg[4096];
+    char id[PATH_MAX];
     unsigned char *buf;
     int len;
     int compressed;
@@ -1068,7 +1083,7 @@ static int tile_handler_serve(request_rec *r)
 
     len = rdata->store->tile_read(rdata->store, cmd->xmlname, cmd->x, cmd->y, cmd->z, buf, tile_max, &compressed, err_msg);
     ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
-                  "Read tile of length %i from disk %s", len, err_msg);
+                  "Read tile of length %i from %s: %s", len, rdata->store->tile_storage_id(rdata->store, cmd->xmlname, cmd->x, cmd->y, cmd->z, id), err_msg);
     if (len > 0) {
         if (compressed) {
             const char* accept_encoding = apr_table_get(r->headers_in,"Accept-Encoding");
@@ -1203,7 +1218,7 @@ static int tile_translate(request_rec *r)
             // Store a copy for later
             rdata->cmd = cmd;
             rdata->layerNumber = i;
-            rdata->store = tile_config->store;
+            rdata->store = get_storage_backend(r, i);
             ap_set_module_config(r->request_config, &tile_module, rdata);
 
             r->filename = NULL; 
@@ -1427,20 +1442,6 @@ static void mod_tile_child_init(apr_pool_t *p, server_rec *s)
           * This routine doesn't return a status. */
          exit(1); /* Ugly, but what else? */
      }
-
-     //TODO: This doesn't seem to work, as at this point config->nelts is always 0
-     ap_conf_vector_t *sconf = s->module_config; 
-     tile_server_conf *scfg = ap_get_module_config(sconf, &tile_module); 
-     tile_config_rec *tile_configs = (tile_config_rec *) scfg->configs->elts;
-
-     for (i = 0; i < scfg->configs->nelts; i++) {
-         tile_configs[i].store = init_storage_backend(scfg->tile_dir);
-         if (tile_configs[i].store == NULL) {
-             ap_log_error(APLOG_MARK, APLOG_WARNING, rs, s,
-                     "Failed to initialise storage backend %s for tile layer %s",
-                          scfg->tile_dir, tile_configs[i].xmlname);
-         }
-     }
 }
 
 static void register_hooks(__attribute__((unused)) apr_pool_t *p)
@@ -1514,7 +1515,7 @@ static const char *_add_tile_config(cmd_parms *cmd, void *mconfig,
     tilecfg->noHostnames = noHostnames;
     tilecfg->hostnames = hostnames;
     tilecfg->cors = cors;
-    tilecfg->store = init_storage_backend(scfg->tile_dir);
+    tilecfg->store = scfg->tile_dir; //TODO: Make store configurable per tile layer
 
     ap_log_error(APLOG_MARK, APLOG_NOTICE, APR_SUCCESS, cmd->server,
                     "Loading tile config %s at %s for zooms %i - %i from tile directory %s with extension .%s and mime type %s",
