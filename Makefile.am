@@ -5,8 +5,8 @@ ACLOCAL_AMFLAGS = -I m4
 
 AM_CPPFLAGS = $(FT2_CFLAGS) $(PTHREAD_CFLAGS) $(BOOST_CPPFLAGS) $(ICU_CPPFLAGS)
 
-STORE_SOURCES = store.c store_file.c store_file_utils.c store_memcached.c
-STORE_LDFLAGS = $(LIBMEMCACHED_LDFLAGS)
+STORE_SOURCES = store.c store_file.c store_file_utils.c store_memcached.c store_rados.c
+STORE_LDFLAGS = $(LIBMEMCACHED_LDFLAGS) -lrados
 
 bin_PROGRAMS = renderd render_expired render_list render_speedtest render_old
 
@@ -25,10 +25,10 @@ render_old_LDADD = $(PTHREAD_CFLAGS)
 #convert_meta_SOURCES = render_config.h protocol.h dir_utils.c dir_utils.h store.c convert_meta.c
 
 all-local:
-	$(APXS) -c $(DEF_LDLIBS) $(AM_CFLAGS) $(AM_LDFLAGS) $(STORE_LDFLAGS) @srcdir@/mod_tile.c  @srcdir@/sys_utils.c @srcdir@/store.c @srcdir@/store_file.c @srcdir@/store_file_utils.c @srcdir@/store_memcached.c
+	$(APXS) -c $(DEF_LDLIBS) $(AM_CFLAGS) $(AM_LDFLAGS) $(STORE_LDFLAGS) @srcdir@/mod_tile.c  @srcdir@/sys_utils.c @srcdir@/store.c @srcdir@/store_file.c @srcdir@/store_file_utils.c @srcdir@/store_memcached.c @srcdir@/store_rados.c
 
 install-mod_tile: 
 	mkdir -p $(DESTDIR)`$(APXS) -q LIBEXECDIR`
-	$(APXS) -S LIBEXECDIR=$(DESTDIR)`$(APXS) -q LIBEXECDIR` -c -i $(DEF_LDLIBS) $(AM_CFLAGS) $(AM_LDFLAGS) $(STORE_LDFLAGS) @srcdir@/mod_tile.c @srcdir@/sys_utils.c @srcdir@/store.c @srcdir@/store_file.c @srcdir@/store_file_utils.c @srcdir@/store_memcached.c
+	$(APXS) -S LIBEXECDIR=$(DESTDIR)`$(APXS) -q LIBEXECDIR` -c -i $(DEF_LDLIBS) $(AM_CFLAGS) $(AM_LDFLAGS) $(STORE_LDFLAGS) @srcdir@/mod_tile.c @srcdir@/sys_utils.c @srcdir@/store.c @srcdir@/store_file.c @srcdir@/store_file_utils.c @srcdir@/store_memcached.c @srcdir@/store_rados.c  
 
 
