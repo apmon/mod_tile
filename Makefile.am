@@ -6,7 +6,7 @@ ACLOCAL_AMFLAGS = -I m4
 AM_CPPFLAGS = $(FT2_CFLAGS) $(PTHREAD_CFLAGS) $(BOOST_CPPFLAGS) $(ICU_CPPFLAGS)
 
 STORE_SOURCES = store.c store_file.c store_file_utils.c store_memcached.c store_rados.c
-STORE_LDFLAGS = $(LIBMEMCACHED_LDFLAGS) -lrados
+STORE_LDFLAGS = $(LIBMEMCACHED_LDFLAGS) $(LIBRADOS_LDFLAGS)
 
 bin_PROGRAMS = renderd render_expired render_list render_speedtest render_old
 

@@ -191,6 +191,10 @@ int main(int argc, char **argv)
     }
 
     store = init_storage_backend(tile_dir);
+    if (store == NULL) {
+        fprintf(stderr, "Failed to initialise storage backend %s\n", tile_dir);
+        return 1;
+    }
 
     if (all) {
         if ((minX != -1 || minY != -1 || maxX != -1 || maxY != -1) && minZoom != maxZoom) {

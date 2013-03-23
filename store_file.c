@@ -25,224 +25,6 @@
 #include "store_file_utils.h"
 #include "protocol.h"
 
-/*
-#ifdef METATILE
-
-#ifdef METATILE
-static void process_meta(const char *tilepath, const char *xmlconfig, int x, int y, int z)
-{
-    int fd;
-    int ox, oy, limit;
-    size_t offset, pos;
-    const int buf_len = 10 * MAX_SIZE; // To store all tiles in this .meta
-    unsigned char *buf;
-    struct meta_layout *m;
-    char meta_path[PATH_MAX];
-    char tmp[PATH_MAX];
-    struct stat s;
-
-    buf = (unsigned char *)malloc(buf_len);
-    if (!buf)
-        return;
-
-    m = (struct meta_layout *)buf;
-    offset = sizeof(struct meta_layout) + (sizeof(struct entry) * (METATILE * METATILE));
-    memset(buf, 0, offset);
-
-    limit = (1 << z);
-    limit = MIN(limit, METATILE);
-
-    for (ox=0; ox < limit; ox++) {
-        for (oy=0; oy < limit; oy++) {
-            //fprintf(stderr, "Process %d/%d/%d\n", num, ox, oy);
-            int len = read_from_file(tilepath, xmlconfig, x + ox, y + oy, z, buf + offset, buf_len - offset);
-            int mt = xyz_to_meta(meta_path, sizeof(meta_path), tilepath, xmlconfig, x + ox, y + oy, z);
-            if (len <= 0) {
-#if 1
-                fprintf(stderr, "Problem reading sub tiles for metatile xml(%s) x(%d) y(%d) z(%d), got %d\n", xmlconfig, x, y, z, len);
-                free(buf);
-                return;
-#else
-                 m->index[mt].offset = 0;
-                 m->index[mt].size = 0;
-#endif
-            } else {
-                 m->index[mt].offset = offset;
-                 m->index[mt].size = len;
-                 offset += len;
-            }
-        }
-    }
-    m->count = METATILE * METATILE;
-    memcpy(m->magic, META_MAGIC, strlen(META_MAGIC));
-    m->x = x;
-    m->y = y;
-    m->z = z;
-
-    xyz_to_meta(meta_path, sizeof(meta_path), tilepath, xmlconfig, x, y, z);
-    if (mkdirp(meta_path)) {
-        fprintf(stderr, "Error creating directories for: %s\n", meta_path);
-        free(buf);
-        return;
-    }
-    snprintf(tmp, sizeof(tmp), "%s.tmp.%d", meta_path, getpid());
-
-    fd = open(tmp, O_WRONLY | O_TRUNC | O_CREAT, 0666);
-    if (fd < 0) {
-        fprintf(stderr, "Error creating file: %s\n", meta_path);
-        free(buf);
-        return;
-    }
-
-    pos = 0;
-    while (pos < offset) {
-        int len = write(fd, buf + pos, offset - pos);
-        if (len < 0) {
-            perror("Writing file");
-            free(buf);
-            close(fd);
-            return;
-        } else if (len > 0) {
-            pos += len;
-        } else {
-            break;
-        }
-    }
-    close(fd);
-    free(buf);
-
-    // Reset meta timestamp to match one of the original tiles
-    xyz_to_path(meta_path, sizeof(meta_path), tilepath, xmlconfig, x, y, z);
-    if (stat(meta_path, &s) == 0) {
-        struct utimbuf b;
-        b.actime = s.st_atime;
-        b.modtime = s.st_mtime;
-        xyz_to_meta(meta_path, sizeof(meta_path), tilepath, xmlconfig, x, y, z);
-        utime(tmp, &b);
-    }
-    rename(tmp, meta_path);
-    printf("Produced .meta: %s\n", meta_path);
-
-    // Remove raw .png's
-    for (ox=0; ox < limit; ox++) {
-        for (oy=0; oy < limit; oy++) {
-            xyz_to_path(meta_path, sizeof(meta_path), tilepath, xmlconfig, x + ox, y + oy, z);
-            if (unlink(meta_path)<0)
-                perror(meta_path);
-        }
-    }
-}
-
-static void process_pack(const char *tilepath, const char *name)
-{
-    char meta_path[PATH_MAX];
-    char xmlconfig[XMLCONFIG_MAX];
-    int x, y, z;
-    int meta_offset;
-
-    if (path_to_xyz(tilepath, name, xmlconfig, &x, &y, &z))
-        return;
- 
-    // Launch the .meta creation for only 1 tile of the whole block
-    meta_offset = xyz_to_meta(meta_path, sizeof(meta_path), tilepath, xmlconfig, x, y, z);
-    //fprintf(stderr,"Requesting x(%d) y(%d) z(%d) - mo(%d)\n", x, y, z, meta_offset);
-
-    if (meta_offset == 0)
-        process_meta(tilepath, xmlconfig, x, y, z);
-}
-
-static void write_tile(const char *tilepath, const char *xmlconfig, int x, int y, int z, const unsigned char *buf, size_t sz)
-{
-    int fd;
-    char path[PATH_MAX];
-    size_t pos;
-
-    xyz_to_path(path, sizeof(path), tilepath, xmlconfig, x, y, z);
-    if (mkdirp(path)) {
-        fprintf(stderr, "Error creating directories for: %s\n", path);
-        return;
-    }
-    fd = open(path, O_WRONLY | O_TRUNC | O_CREAT, 0666);
-    if (fd < 0) {
-        fprintf(stderr, "Error creating file: %s\n", path);
-        return;
-    }
-
-    pos = 0;
-    while (pos < sz) {
-        int len = write(fd, buf + pos, sz - pos);
-        if (len < 0) {
-            perror("Writing file");
-            close(fd);
-            return;
-        } else if (len > 0) {
-            pos += len;
-        } else {
-            break;
-        }
-    }
-    close(fd);
-    printf("Produced tile: %s\n", path);
-}
-
-static void process_unpack(const char *tilepath, const char *name)
-{
-    char meta_path[PATH_MAX];
-    char xmlconfig[XMLCONFIG_MAX];
-    char err_msg[4096];
-    int x, y, z;
-    int ox, oy, limit;
-    const int buf_len = 1024 * 1024;
-    unsigned char *buf;
-    struct stat s;
-    int compressed;
-
-    // path_to_xyz is valid for meta tile names as well
-    if (path_to_xyz(tilepath, name, xmlconfig, &x, &y, &z))
-        return;
-
-    buf = (unsigned char *)malloc(buf_len);
-    if (!buf)
-        return;
-
-
-    limit = (1 << z);
-    limit = MIN(limit, METATILE);
-
-    for (ox=0; ox < limit; ox++) {
-        for (oy=0; oy < limit; oy++) {
-            err_msg[0] = 0;
-            int len = read_from_meta(tilepath, xmlconfig, x + ox, y + oy, z, buf, buf_len, &compressed, err_msg);
-
-            if (len <= 0)
-                fprintf(stderr, "Failed to get tile x(%d) y(%d) z(%d)\n    %s", x + ox, y + oy, z, err_msg);
-            else
-                write_tile(tilepath, xmlconfig, x + ox, y + oy, z, buf, len);
-        }
-    }
-    free(buf);
-
-    // Grab timestamp of the meta file and update tile timestamps
-    if (stat(name, &s) == 0) {
-        struct utimbuf b;
-        b.actime = s.st_atime;
-        b.modtime = s.st_mtime;
-        for (ox=0; ox < limit; ox++) {
-            for (oy=0; oy < limit; oy++) {
-                xyz_to_path(meta_path, sizeof(meta_path), tilepath, xmlconfig, x+ox, y+oy, z);
-                utime(meta_path, &b);
-            }
-        }
-    }
-
-    // Remove the .meta file
-    xyz_to_meta(meta_path, sizeof(meta_path), tilepath, xmlconfig, x, y, z);
-    if (unlink(meta_path)<0)
-        perror(meta_path);
-}
-#endif
-
-*/
 
 static time_t getPlanetTime(const char * tile_dir, const char * xmlname)
 {
@@ -396,32 +178,34 @@ static int file_metatile_write(struct storage_backend * store, const char *xmlco
     int fd;
     char meta_path[PATH_MAX];
     char * tmp;
-
-    fprintf(stderr, "Trying to create and write a file\n");
  
     xyz_to_meta(meta_path, sizeof(meta_path), (char *)(store->storage_ctx), xmlconfig, x, y, z);
-    //(char *path, size_t len, const char *tile_dir, const char *xmlconfig, int x, int y, int z)
-    fprintf(stderr, "Trying to create and write a file: %s\n", meta_path);
+    log_message(STORE_LOGLVL_DEBUG, "Creating and writing a metatile to %s\n", meta_path);
+
     tmp = malloc(sizeof(char) * strlen(meta_path) + 12);
     sprintf(tmp, "%s.%lu", meta_path, pthread_self());
-    fprintf(stderr, "Create and write tmp file: %s\n", tmp);
+
     if (mkdirp(tmp))
+        free(tmp);
         return -1;
 
     fd = open(tmp, O_WRONLY | O_TRUNC | O_CREAT, 0666);
     if (fd < 0) {
-        fprintf(stderr, "Error creating file: %s\n", meta_path);
+        log_message(STORE_LOGLVL_WARNING, "Error creating file %s: %s\n", meta_path, strerror(errno));
+        free(tmp);
         return -1;
     }
     
     int res = write(fd, buf, sz);
     if (res != sz) {
-        fprintf(stderr, "Error writing file: %s\n", meta_path);
+        log_message(STORE_LOGLVL_WARNING, "Error writing file %s: %s\n", meta_path, strerror(errno));
+        close(fd);
+        free(tmp);
+        return -1;
     }
 
     close(fd);
     rename(tmp, meta_path);
-    fprintf(stderr, "Renamed and written file: %s\n", meta_path);
     free(tmp);
 
     return sz;
@@ -431,6 +215,7 @@ static int file_metatile_delete(struct storage_backend * store, const char *xmlc
     char meta_path[PATH_MAX];
 
     xyz_to_meta(meta_path, sizeof(meta_path), (char *)(store->storage_ctx), xmlconfig, x, y, z);
+    log_message(STORE_LOGLVL_DEBUG, "Deleting metatile from %s\n", meta_path);
     return unlink(meta_path);
 }
 
@@ -475,6 +260,10 @@ static int file_close_storage(struct storage_backend * store) {
 struct storage_backend * init_storage_file(const char * tile_dir) {
     
     struct storage_backend * store = malloc(sizeof(struct storage_backend));
+    if (store == NULL) {
+        log_message(STORE_LOGLVL_ERR, "init_storage_file: Failed to allocate memory for storage backend");
+        return NULL;
+    }
     store->storage_ctx = strdup(tile_dir);
 
     store->tile_read = &file_tile_read;

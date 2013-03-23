@@ -521,34 +521,41 @@ void *render_thread(void * arg)
         strcpy(maps[iMaxConfigs].xmlname, parentxmlconfig[iMaxConfigs].xmlname);
         strcpy(maps[iMaxConfigs].xmlfile, parentxmlconfig[iMaxConfigs].xmlfile);
         maps[iMaxConfigs].store = init_storage_backend(parentxmlconfig[iMaxConfigs].tile_dir);
-        maps[iMaxConfigs].map = mapnik::Map(RENDER_SIZE, RENDER_SIZE);
-        maps[iMaxConfigs].ok = 1;
-	try {
-	  mapnik::load_map(maps[iMaxConfigs].map, maps[iMaxConfigs].xmlfile);
-	} catch (std::exception const& ex) {
-	  syslog(LOG_ERR, "An error occurred while loading the map layer '%s': %s", maps[iMaxConfigs].xmlname, ex.what());
-	  maps[iMaxConfigs].ok = 0;
-	} catch (...) {
-	  syslog(LOG_ERR, "An unknown error occurred while loading the map layer '%s'", maps[iMaxConfigs].xmlname);
-	  maps[iMaxConfigs].ok = 0;
-	}
-        maps[iMaxConfigs].prj = projection(maps[iMaxConfigs].map.srs());
-#ifdef HTCP_EXPIRE_CACHE
-        strcpy(maps[iMaxConfigs].xmluri, parentxmlconfig[iMaxConfigs].xmluri);
-        strcpy(maps[iMaxConfigs].host, parentxmlconfig[iMaxConfigs].host);
-        strcpy(maps[iMaxConfigs].htcphost, parentxmlconfig[iMaxConfigs].htcpip);
-        if (strlen(maps[iMaxConfigs].htcphost) > 0) {
-            maps[iMaxConfigs].htcpsock = init_cache_expire(
-                    maps[iMaxConfigs].htcphost);
-            if (maps[iMaxConfigs].htcpsock > 0) {
-                syslog(LOG_INFO, "Successfully opened socket for HTCP cache expiry");
-            } else {
-                syslog(LOG_ERR, "Failed to opened socket for HTCP cache expiry");
+
+        if (maps[iMaxConfigs].store) {
+            maps[iMaxConfigs].ok = 1;
+
+            maps[iMaxConfigs].map = mapnik::Map(RENDER_SIZE, RENDER_SIZE);
+
+            try {
+                mapnik::load_map(maps[iMaxConfigs].map, maps[iMaxConfigs].xmlfile);
+            } catch (std::exception const& ex) {
+                syslog(LOG_ERR, "An error occurred while loading the map layer '%s': %s", maps[iMaxConfigs].xmlname, ex.what());
+                maps[iMaxConfigs].ok = 0;
+            } catch (...) {
+                syslog(LOG_ERR, "An unknown error occurred while loading the map layer '%s'", maps[iMaxConfigs].xmlname);
+                maps[iMaxConfigs].ok = 0;
             }
-        } else {
-            maps[iMaxConfigs].htcpsock = -1;
-        }
+            maps[iMaxConfigs].prj = projection(maps[iMaxConfigs].map.srs());
+#ifdef HTCP_EXPIRE_CACHE
+            strcpy(maps[iMaxConfigs].xmluri, parentxmlconfig[iMaxConfigs].xmluri);
+            strcpy(maps[iMaxConfigs].host, parentxmlconfig[iMaxConfigs].host);
+            strcpy(maps[iMaxConfigs].htcphost, parentxmlconfig[iMaxConfigs].htcpip);
+            if (strlen(maps[iMaxConfigs].htcphost) > 0) {
+                maps[iMaxConfigs].htcpsock = init_cache_expire(
+                        maps[iMaxConfigs].htcphost);
+                if (maps[iMaxConfigs].htcpsock > 0) {
+                    syslog(LOG_INFO, "Successfully opened socket for HTCP cache expiry");
+                } else {
+                    syslog(LOG_ERR, "Failed to opened socket for HTCP cache expiry");
+                }
+            } else {
+                maps[iMaxConfigs].htcpsock = -1;
+            }
+
 #endif
+        } else
+            maps[iMaxConfigs].ok = 0;
     }
 
     while (1) {

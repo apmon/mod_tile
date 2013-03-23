@@ -279,6 +279,10 @@ int main(int argc, char **argv)
     }
 
     store = init_storage_backend(tile_dir);
+    if (store == NULL) {
+        fprintf(stderr, "failed to initialise storage backend %s\n", tile_dir);
+        return 1;
+    }
 
     while(!feof(stdin)) 
     {
@@ -293,7 +297,7 @@ int main(int argc, char **argv)
             char *r = fgets(tmp, sizeof(tmp), stdin);
             if (!r)
                 continue;
-            // fprintf(stderr, "bad line %d: %s", num_all, tmp);
+            fprintf(stderr, "bad line %d: %s", num_all, tmp);
             continue;
         }
 

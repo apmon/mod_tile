@@ -7,7 +7,6 @@
  */
 
 #include "config.h"
-#include "config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -43,7 +42,6 @@ static int memcached_tile_read(struct storage_backend * store, const char *xmlco
 
     char meta_path[PATH_MAX];
     int meta_offset;
-    unsigned int pos;
     unsigned int header_len = sizeof(struct meta_layout) + METATILE*METATILE*sizeof(struct entry);
     struct meta_layout *m = (struct meta_layout *)malloc(header_len);
     size_t file_offset, tile_size;
@@ -128,8 +126,6 @@ static struct stat_info memcached_tile_stat(struct storage_backend * store, cons
     memcpy(&tile_stat,buf, sizeof(struct stat_info));
     memcpy(m, buf + sizeof(struct stat_info), header_len);
     tile_stat.size = m->index[offset].size;
-    
-    printf("Tile stat: expired %i \n", tile_stat.expired);
 
     free(m);
     free(buf);
@@ -145,11 +141,15 @@ static char * memcached_tile_storage_id(struct storage_backend * store, const ch
 
 static int memcached_metatile_write(struct storage_backend * store, const char *xmlconfig, int x, int y, int z, const char *buf, int sz) {
     char meta_path[PATH_MAX];
-    char * tmp;
+    char tmp[PATH_MAX];
     struct stat_info tile_stat;
     int sz2 = sz + sizeof(struct stat_info);
     char * buf2 = malloc(sz2);
     memcached_return_t rc;
+
+    if (buf2 == NULL) {
+        return -2;
+    }
 
     tile_stat.expired = 0;
     tile_stat.mtime = time(NULL);
@@ -159,7 +159,7 @@ static int memcached_metatile_write(struct storage_backend * store, const char *
     memcpy(buf2, &tile_stat, sizeof(tile_stat));
     memcpy(buf2 + sizeof(tile_stat), buf, sz);
 
-    fprintf(stderr, "Trying to create and write a tile to memcahced\n");
+    log_message(STORE_LOGLVL_DEBUG, "Trying to create and write a metatile to %s\n", memcached_tile_storage_id(store, xmlconfig, x, y, z, tmp));
  
     snprintf(meta_path,PATH_MAX - 1, "%s/%d/%d/%d.meta", xmlconfig, x, y, z);
 
@@ -191,7 +191,6 @@ static int memcached_metatile_delete(struct storage_backend * store, const char 
 
 static int memcached_metatile_expire(struct storage_backend * store, const char *xmlconfig, int x, int y, int z) {
 
-    struct stat_info tile_stat;
     char meta_path[PATH_MAX];
     char * buf;
     size_t len;
@@ -209,7 +208,6 @@ static int memcached_metatile_expire(struct storage_backend * store, const char 
 
     ((struct stat_info *)buf)->expired = 1;
 
-    //rc = memcached_cas(store->storage_ctx, meta_path, strlen(meta_path), buf, len, 0, flags, cas);
     rc = memcached_cas(store->storage_ctx, meta_path, strlen(meta_path), buf, len, 0, flags, cas);
 
     if (rc != MEMCACHED_SUCCESS) {
@@ -230,13 +228,22 @@ static int memcached_close_storage(struct storage_backend * store) {
 struct storage_backend * init_storage_memcached(const char * connection_string) {
     
 #ifndef HAVE_LIBMEMCACHED
+    log_message(STORE_LOGLVL_ERR,"init_storage_memcached: Support for memcached has not been compiled into this program");
     return NULL;
 #else
     struct storage_backend * store = malloc(sizeof(struct storage_backend));
     memcached_st * ctx;
-
     char * connection_str = "--server=localhost";
+
+    if (store == NULL) {
+        log_message(STORE_LOGLVL_ERR,"init_storage_memcached: Failed to allocate memory for storage backend");
+        return NULL;
+    }
     ctx = memcached(connection_str, strlen(connection_str));
+    if (ctx == NULL) {
+        log_message(STORE_LOGLVL_ERR,"init_storage_memcached: Failed to create memcached ctx");
+        return NULL;
+    }
     store->storage_ctx = ctx;
 
     store->tile_read = &memcached_tile_read;

@@ -129,9 +129,7 @@ AC_DEFUN([_ENABLE_LIBMEMCACHED], [
                      LIBMEMCACHED_UTIL_LDFLAGS="-lmemcached -lmemcachedutil"
                      AC_SUBST([LIBMEMCACHED_UTIL_LDFLAGS])
                      ])
-               ],[
-               AC_DEFINE([HAVE_LIBMEMCACHED], [0], [Enable libmemcached support])
-               ])
+               ],[])
          AM_CONDITIONAL(HAVE_LIBMEMCACHED, test "x${ax_enable_libmemcached}" = "xyes")
          ])
 
