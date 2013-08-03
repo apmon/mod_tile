@@ -83,9 +83,11 @@ void *addition_thread(void * arg) {
     unsigned int seed = syscall(SYS_gettid);
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time);
     seed *= (unsigned int)time.tv_nsec;
+    pthread_t tid = pthread_self();
 
     for (int i = 0; i < NO_QUEUE_REQUESTS; i++) {
         item = init_render_request(cmdDirty);
+        item->my = tid;
         item->mx = rand_r(&seed);
         res = request_queue_add_request(queue, item);
     }
@@ -156,6 +158,7 @@ TEST_CASE( "renderd/queueing", "request queueing") {
         struct item *item2 = request_queue_fetch_request(queue);
 
         REQUIRE( item == item2 );
+        free(item2);
 
         request_queue_close(queue);
     }
@@ -187,6 +190,11 @@ TEST_CASE( "renderd/queueing", "request queueing") {
         REQUIRE( itemD == item2 );
         item2 = request_queue_fetch_request(queue);
         REQUIRE( itemB == item2 );
+
+        free(itemR);
+        free(itemB);
+        free(itemD);
+        free(itemRP);
 
         request_queue_close(queue);
         }
@@ -407,14 +415,19 @@ TEST_CASE( "renderd/queueing", "request queueing") {
         REQUIRE (item->fd == 1);
         item = request_queue_fetch_request(queue);
         REQUIRE (item->fd == FD_INVALID);
+        free(item);
         item = request_queue_fetch_request(queue);
         REQUIRE (item->fd == 3);
+        free(item);
         item = request_queue_fetch_request(queue);
         REQUIRE (item->fd == FD_INVALID);
+        free(item);
         item = request_queue_fetch_request(queue);
         REQUIRE (item->fd == 5);
+        free(item);
         item = request_queue_fetch_request(queue);
         REQUIRE (item->fd == 6);
+        free(item);
 
         request_queue_close(queue);
     }
@@ -532,8 +545,6 @@ TEST_CASE( "storage-backend", "Tile storage backend" ) {
         tiles.save(store);
 
         store->close_storage(store);
-
-
     }
 
     SECTION("storage/stat/full metatile", "should complete") {
@@ -568,8 +579,7 @@ TEST_CASE( "storage-backend", "Tile storage backend" ) {
         }
 
         store->close_storage(store);
-
-
+        free(tile_dir);
     }
 
     SECTION("storage/read/full metatile", "should complete") {
@@ -609,6 +619,8 @@ TEST_CASE( "storage-backend", "Tile storage backend" ) {
             }
         }
 
+        free(buf);
+        free(buf_tmp);
         store->close_storage(store);
 
 
@@ -655,6 +667,8 @@ TEST_CASE( "storage-backend", "Tile storage backend" ) {
             }
         }
 
+        free(buf);
+        free(buf_tmp);
         store->close_storage(store);
     }
 
@@ -694,7 +708,8 @@ TEST_CASE( "storage-backend", "Tile storage backend" ) {
 
         REQUIRE ( sinfo.size < 0 );
 
-
+        free(buf);
+        free(buf_tmp);
         store->close_storage(store);
     }
 
@@ -735,7 +750,8 @@ TEST_CASE( "storage-backend", "Tile storage backend" ) {
         REQUIRE ( sinfo.size > 0 );
         REQUIRE ( sinfo.expired > 0 );
 
-
+        free(buf);
+        free(buf_tmp);
         store->close_storage(store);
     }
 
