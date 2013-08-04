@@ -46,7 +46,7 @@ if [ "$1" = "config" ]; then
 	exit 0
 fi
 
-MUNIN_STATEFILE=latency.state
+#MUNIN_STATEFILE=latency.state
 
 data=`wget -q http://localhost/mod_tile -O -`
 
